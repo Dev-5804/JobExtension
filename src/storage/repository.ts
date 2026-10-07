@@ -61,6 +61,20 @@ async function clearDraft() {
 export const applicationRepository: ApplicationRepository = {
   getAll: readApplications,
   async create(application) { await writeApplications([application, ...(await readApplications())]); return application },
+  async merge(newApplications) {
+    const existing = await readApplications()
+    const ids = new Set(existing.map((application) => application.id))
+    const merged = [...existing, ...newApplications.filter((application) => !ids.has(application.id))]
+    await writeApplications(merged)
+    return merged
+  },
+  async replaceAll(applications) {
+    await writeApplications(applications)
+  },
+  async clearAll() {
+    await writeApplications([])
+    await clearDraft()
+  },
   async update(id, changes) {
     const applications = await readApplications()
     const index = applications.findIndex((application) => application.id === id)

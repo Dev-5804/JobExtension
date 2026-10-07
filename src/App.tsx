@@ -4,9 +4,10 @@ import './App.css'
 import type { ApplicationDraft, ApplicationStatus, JobApplication } from './types/application'
 import { applicationRepository } from './storage/repository'
 import { extractFromActiveTab } from './extraction/activeTab'
+import { findDuplicate } from './utils/data'
 
 const statuses: ApplicationStatus[] = ['saved', 'applied', 'screening', 'interview', 'offer', 'rejected', 'withdrawn']
-const emptyForm = { company: '', jobTitle: '', url: '', location: '', platform: '', status: 'applied' as ApplicationStatus }
+const emptyForm = { company: '', jobTitle: '', url: '', location: '', platform: '', notes: '', deadline: '', interviewDate: '', status: 'applied' as ApplicationStatus }
 
 function formatStatus(status: ApplicationStatus) {
   return status.charAt(0).toUpperCase() + status.slice(1)
@@ -61,6 +62,12 @@ function App() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setMessage('')
+    const existingApplications = await applicationRepository.getAll()
+    const duplicate = findDuplicate(form, existingApplications)
+    if (duplicate && !window.confirm(`This looks like a duplicate of ${duplicate.jobTitle} at ${duplicate.company}. Save it anyway?`)) {
+      setMessage('Duplicate not saved.')
+      return
+    }
     const now = new Date().toISOString()
     const application = await applicationRepository.create({
       id: crypto.randomUUID(), ...form,
@@ -93,6 +100,9 @@ function App() {
           <label>Location<input value={form.location} onChange={(event) => updateForm({ ...form, location: event.target.value })} placeholder="Remote or city" /></label>
           <label>Platform<input value={form.platform} onChange={(event) => updateForm({ ...form, platform: event.target.value })} placeholder="LinkedIn, company site..." /></label>
           <label>Status<select value={form.status} onChange={(event) => updateForm({ ...form, status: event.target.value as ApplicationStatus })}>{statuses.map((status) => <option key={status} value={status}>{formatStatus(status)}</option>)}</select></label>
+          <label className="wide-field">Notes<textarea value={form.notes} onChange={(event) => updateForm({ ...form, notes: event.target.value })} placeholder="Recruiter, resume version, follow-up details..." rows={3} /></label>
+          <label>Deadline<input type="date" value={form.deadline} onChange={(event) => updateForm({ ...form, deadline: event.target.value })} /></label>
+          <label>Interview date<input type="date" value={form.interviewDate} onChange={(event) => updateForm({ ...form, interviewDate: event.target.value })} /></label>
         </div>
         <button className="primary-button" type="submit">Save application <span aria-hidden="true">↗</span></button>
       </form>

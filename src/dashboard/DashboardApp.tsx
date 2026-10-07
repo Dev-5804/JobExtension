@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ApplicationStatus, JobApplication } from '../types/application'
 import { applicationRepository } from '../storage/repository'
+import { parseExportData } from '../utils/data'
 
 const statuses: ApplicationStatus[] = ['saved', 'applied', 'screening', 'interview', 'offer', 'rejected', 'withdrawn']
 type SortOption = 'newest' | 'oldest' | 'company' | 'status'
 
-type EditValues = Pick<JobApplication, 'company' | 'jobTitle' | 'url' | 'location' | 'platform' | 'status'>
+type EditValues = Pick<JobApplication, 'company' | 'jobTitle' | 'url' | 'location' | 'platform' | 'notes' | 'deadline' | 'interviewDate' | 'status'>
 
 function formatStatus(status: ApplicationStatus) {
   return status.charAt(0).toUpperCase() + status.slice(1)
@@ -17,7 +18,7 @@ function formatDate(date?: string) {
 }
 
 function matchesSearch(application: JobApplication, search: string) {
-  const searchable = [application.company, application.jobTitle, application.url, application.location, application.platform].join(' ').toLowerCase()
+  const searchable = [application.company, application.jobTitle, application.url, application.location, application.platform, application.notes].join(' ').toLowerCase()
   return searchable.includes(search.toLowerCase())
 }
 
@@ -30,6 +31,8 @@ function DashboardApp() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<EditValues | null>(null)
   const [message, setMessage] = useState('')
+  const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge')
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     applicationRepository.getAll().then(setApplications)
@@ -59,7 +62,7 @@ function DashboardApp() {
 
   function startEditing(application: JobApplication) {
     setEditingId(application.id)
-    setEditValues({ company: application.company, jobTitle: application.jobTitle, url: application.url, location: application.location ?? '', platform: application.platform ?? '', status: application.status })
+    setEditValues({ company: application.company, jobTitle: application.jobTitle, url: application.url, location: application.location ?? '', platform: application.platform ?? '', notes: application.notes ?? '', deadline: application.deadline ?? '', interviewDate: application.interviewDate ?? '', status: application.status })
     setMessage('')
   }
 
@@ -84,15 +87,66 @@ function DashboardApp() {
     setMessage('Application deleted.')
   }
 
+  async function clearAllApplications() {
+    if (!window.confirm('Delete all locally stored applications? This cannot be undone without a backup.')) return
+    await applicationRepository.clearAll()
+    setApplications([])
+    setMessage('All local applications were deleted.')
+  }
+
+  function downloadFile(filename: string, content: string, type: string) {
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(new Blob([content], { type }))
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(link.href)
+  }
+
+  function exportJson() {
+    downloadFile('job-ledger-backup.json', JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), applications }, null, 2), 'application/json')
+    setMessage('JSON backup exported.')
+  }
+
+  function exportCsv() {
+    const columns = ['ID', 'Company', 'Job Title', 'URL', 'Platform', 'Location', 'Notes', 'Deadline', 'Interview Date', 'Status', 'Date Applied', 'Created At', 'Updated At']
+    const rows = applications.map((application) => [application.id, application.company, application.jobTitle, application.url, application.platform ?? '', application.location ?? '', application.notes ?? '', application.deadline ?? '', application.interviewDate ?? '', application.status, application.dateApplied ?? '', application.createdAt, application.updatedAt])
+    const escape = (value: string) => `"${value.replace(/"/g, '""')}"`
+    downloadFile('job-ledger-applications.csv', [columns, ...rows].map((row) => row.map(escape).join(',')).join('\n'), 'text/csv;charset=utf-8')
+    setMessage('CSV exported.')
+  }
+
+  function chooseImport(mode: 'merge' | 'replace') {
+    setImportMode(mode)
+    importInputRef.current?.click()
+  }
+
+  async function importJson(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    try {
+      const imported = parseExportData(JSON.parse(await file.text()))
+      if (importMode === 'replace' && !window.confirm('Replace all locally stored applications with this backup?')) return
+      const nextApplications = importMode === 'replace'
+        ? imported.applications
+        : await applicationRepository.merge(imported.applications)
+      if (importMode === 'replace') await applicationRepository.replaceAll(nextApplications)
+      setApplications(nextApplications)
+      setMessage(`${imported.applications.length} application${imported.applications.length === 1 ? '' : 's'} imported.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not import this backup.')
+    }
+  }
+
   return <main className="dashboard-shell">
     <header className="dashboard-header">
       <div><p className="eyebrow">LOCAL ARCHIVE / DASHBOARD</p><h1>Your job ledger</h1><p className="subheading">A clear view of every application, stored only in this browser.</p></div>
-      <a className="back-link" href="index.html">← Quick add</a>
+      <div className="header-actions"><button className="export-button" type="button" onClick={exportJson}>↓ JSON backup</button><button className="export-button" type="button" onClick={exportCsv}>↓ CSV</button><button className="clear-button" type="button" onClick={() => void clearAllApplications()}>Clear all</button><a className="back-link" href="index.html">← Quick add</a></div>
     </header>
 
     <section className="metric-grid" aria-label="Application statistics">
       <div><span>Total applications</span><strong>{applications.length}</strong></div>
-      <div><span>Active search</span><strong>{activeCount}</strong></div>
+      <div><span>In progress</span><strong>{activeCount}</strong></div>
       <div><span>Interviews</span><strong>{interviewCount}</strong></div>
       <div><span>Offers</span><strong>{offerCount}</strong></div>
     </section>
@@ -103,6 +157,8 @@ function DashboardApp() {
       <label>Platform<select value={platformFilter} onChange={(event) => setPlatformFilter(event.target.value)}><option value="all">All platforms</option>{platforms.map((platform) => <option key={platform} value={platform}>{platform}</option>)}</select></label>
       <label>Sort<select value={sort} onChange={(event) => setSort(event.target.value as SortOption)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="company">Company A-Z</option><option value="status">Status</option></select></label>
     </section>
+
+    <section className="backup-bar" aria-label="Backup controls"><div><p className="eyebrow">PORTABLE DATA</p><p>Restore a JSON backup or replace this local archive.</p></div><div className="backup-actions"><button type="button" onClick={() => chooseImport('merge')}>Import and merge</button><button type="button" onClick={() => chooseImport('replace')}>Replace all</button><input ref={importInputRef} type="file" accept="application/json,.json" onChange={(event) => void importJson(event)} /></div></section>
 
     {message && <p className="dashboard-message" role="status">{message}</p>}
     <section className="table-section" aria-labelledby="applications-heading">
@@ -116,7 +172,10 @@ function DashboardApp() {
           <label>Location<input value={editValues.location} onChange={(event) => setEditValues({ ...editValues, location: event.target.value })} /></label>
           <label>Platform<input value={editValues.platform} onChange={(event) => setEditValues({ ...editValues, platform: event.target.value })} /></label>
           <label>Status<select value={editValues.status} onChange={(event) => setEditValues({ ...editValues, status: event.target.value as ApplicationStatus })}>{statuses.map((status) => <option key={status} value={status}>{formatStatus(status)}</option>)}</select></label>
-        </div><div className="edit-actions"><button className="action-button action-primary" type="button" onClick={() => void saveEdit(application.id)}>Save changes</button><button className="action-button" type="button" onClick={() => { setEditingId(null); setEditValues(null) }}>Cancel</button></div></td> : <><td><strong>{application.company}</strong><span>{application.jobTitle}{application.location ? ` · ${application.location}` : ''}</span></td><td>{application.platform || 'Other'}</td><td>{formatDate(application.dateApplied ?? application.createdAt)}</td><td><select className={`status-select status-${application.status}`} value={application.status} aria-label={`Status for ${application.jobTitle}`} onChange={(event) => void changeStatus(application.id, event.target.value as ApplicationStatus)}>{statuses.map((status) => <option key={status} value={status}>{formatStatus(status)}</option>)}</select></td><td className="row-actions"><a href={application.url} target="_blank" rel="noreferrer" aria-label={`Open ${application.jobTitle}`}>↗</a><button type="button" onClick={() => startEditing(application)} aria-label={`Edit ${application.jobTitle}`}>Edit</button><button type="button" onClick={() => void deleteApplication(application)} aria-label={`Delete ${application.jobTitle}`}>Delete</button></td></>}</tr>
+          <label className="edit-notes">Notes<textarea value={editValues.notes} onChange={(event) => setEditValues({ ...editValues, notes: event.target.value })} rows={3} /></label>
+          <label>Deadline<input type="date" value={editValues.deadline} onChange={(event) => setEditValues({ ...editValues, deadline: event.target.value })} /></label>
+          <label>Interview date<input type="date" value={editValues.interviewDate} onChange={(event) => setEditValues({ ...editValues, interviewDate: event.target.value })} /></label>
+        </div><div className="edit-actions"><button className="action-button action-primary" type="button" onClick={() => void saveEdit(application.id)}>Save changes</button><button className="action-button" type="button" onClick={() => { setEditingId(null); setEditValues(null) }}>Cancel</button></div></td> : <><td><strong>{application.company}</strong><span>{application.jobTitle}{application.location ? ` · ${application.location}` : ''}</span></td><td>{application.platform || 'Other'}</td><td><span>{formatDate(application.dateApplied ?? application.createdAt)}</span>{application.deadline && <span className="timeline-meta">Due {formatDate(application.deadline)}</span>}{application.interviewDate && <span className="timeline-meta">Interview {formatDate(application.interviewDate)}</span>}</td><td><select className={`status-select status-${application.status}`} value={application.status} aria-label={`Status for ${application.jobTitle}`} onChange={(event) => void changeStatus(application.id, event.target.value as ApplicationStatus)}>{statuses.map((status) => <option key={status} value={status}>{formatStatus(status)}</option>)}</select></td><td className="row-actions"><a href={application.url} target="_blank" rel="noreferrer" aria-label={`Open ${application.jobTitle}`}>↗</a><button type="button" onClick={() => startEditing(application)} aria-label={`Edit ${application.jobTitle}`}>Edit</button><button type="button" onClick={() => void deleteApplication(application)} aria-label={`Delete ${application.jobTitle}`}>Delete</button></td></>}</tr>
       })}</tbody></table></div>}
     </section>
   </main>
