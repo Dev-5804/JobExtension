@@ -16,6 +16,8 @@ export interface JobApplication {
 export interface ApplicationRepository {
   getAll(): Promise<JobApplication[]>
   create(application: JobApplication): Promise<JobApplication>
+  update(id: string, changes: Partial<JobApplication>): Promise<JobApplication | null>
+  delete(id: string): Promise<void>
   getDraft(): Promise<ApplicationDraft | null>
   saveDraft(draft: ApplicationDraft): Promise<void>
   clearDraft(): Promise<void>

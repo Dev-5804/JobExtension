@@ -61,6 +61,19 @@ async function clearDraft() {
 export const applicationRepository: ApplicationRepository = {
   getAll: readApplications,
   async create(application) { await writeApplications([application, ...(await readApplications())]); return application },
+  async update(id, changes) {
+    const applications = await readApplications()
+    const index = applications.findIndex((application) => application.id === id)
+    if (index === -1) return null
+    const updatedApplication = { ...applications[index], ...changes, updatedAt: new Date().toISOString() }
+    applications[index] = updatedApplication
+    await writeApplications(applications)
+    return updatedApplication
+  },
+  async delete(id) {
+    const applications = await readApplications()
+    await writeApplications(applications.filter((application) => application.id !== id))
+  },
   getDraft,
   saveDraft,
   clearDraft,

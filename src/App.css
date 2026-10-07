@@ -27,6 +27,8 @@ h3 { font-size: 18px; }
 .intro { padding: 26px 0 20px; }
 .intro p { color: #19302a; font: 22px/1.15 Georgia, serif; }
 .intro span, .section-heading > span { color: #66736d; font: 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.dashboard-link { align-self: flex-start; margin-bottom: 20px; border: 0; border-bottom: 1px solid #c45a3d; padding: 0 0 3px; color: #c45a3d; background: transparent; cursor: pointer; font: 700 10px ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; letter-spacing: .8px; }
+.dashboard-link span { margin-left: 6px; font-size: 14px; }
 
 .application-form, .recent-section { border: 1px solid rgba(25, 48, 42, .15); background: rgba(255, 253, 248, .62); }
 .application-form { padding: 20px; }

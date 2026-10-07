@@ -2,36 +2,35 @@ import type { ApplicationDraft } from '../types/application'
 
 export type ExtractedJobDetails = Partial<Pick<ApplicationDraft, 'company' | 'jobTitle' | 'url' | 'location' | 'platform'>>
 
-function textContent(selector: string) {
-  return document.querySelector(selector)?.textContent?.trim() ?? ''
-}
-
-function metaContent(selector: string) {
-  return document.querySelector<HTMLMetaElement>(selector)?.content?.trim() ?? ''
-}
-
-function firstNonEmpty(...values: string[]) {
-  return values.find(Boolean) ?? ''
-}
-
-function platformFromHostname(hostname: string) {
-  if (hostname.includes('linkedin')) return 'LinkedIn'
-  if (hostname.includes('naukri')) return 'Naukri'
-  if (hostname.includes('indeed')) return 'Indeed'
-  if (hostname.includes('wellfound')) return 'Wellfound'
-  return ''
-}
-
 export function extractJobDetails(): ExtractedJobDetails {
-  const canonicalUrl = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href ?? location.href
+  const textContent = (selector: string) => document.querySelector(selector)?.textContent?.trim() ?? ''
+  const metaContent = (selector: string) => document.querySelector<HTMLMetaElement>(selector)?.content?.trim() ?? ''
+  const firstNonEmpty = (...values: string[]) => values.find(Boolean) ?? ''
   const hostname = location.hostname.toLowerCase()
+  const platform = hostname.includes('linkedin')
+    ? 'LinkedIn'
+    : hostname.includes('naukri')
+      ? 'Naukri'
+      : hostname.includes('indeed')
+        ? 'Indeed'
+        : hostname.includes('wellfound')
+          ? 'Wellfound'
+          : ''
+  const canonicalUrl = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href ?? location.href
   let structuredData: Record<string, unknown> = {}
 
   for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
     try {
       const parsed = JSON.parse(script.textContent ?? '') as Record<string, unknown> | Record<string, unknown>[]
-      const entries = Array.isArray(parsed) ? parsed : [parsed]
-      const jobPosting = entries.find((entry) => entry['@type'] === 'JobPosting')
+      const entries = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed['@graph'])
+          ? parsed['@graph'] as Record<string, unknown>[]
+          : [parsed]
+      const jobPosting = entries.find((entry) => {
+        const type = entry['@type']
+        return type === 'JobPosting' || (Array.isArray(type) && type.includes('JobPosting'))
+      })
       if (jobPosting) {
         structuredData = jobPosting
         break
@@ -67,6 +66,6 @@ export function extractJobDetails(): ExtractedJobDetails {
       metaContent('meta[name="location"]'),
       textContent('[class*="location"], [data-testid*="location"]'),
     ),
-    platform: platformFromHostname(hostname),
+    platform,
   }
 }

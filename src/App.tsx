@@ -12,6 +12,11 @@ function formatStatus(status: ApplicationStatus) {
   return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
+function openDashboard() {
+  const extensionChrome = (globalThis as typeof globalThis & { chrome?: { runtime?: { getURL(path: string): string } } }).chrome
+  window.open(extensionChrome?.runtime?.getURL('dashboard.html') ?? 'dashboard.html', '_blank')
+}
+
 function App() {
   const [form, setForm] = useState(emptyForm)
   const [applications, setApplications] = useState<JobApplication[]>([])
@@ -77,6 +82,7 @@ function App() {
         <div className="stats" aria-label="Application summary"><strong>{applications.length}</strong><span>tracked</span><strong>{activeCount}</strong><span>active</span></div>
       </header>
       <section className="intro"><p>Keep your search in one calm, local place.</p><span>Nothing leaves this browser.</span></section>
+      <button className="dashboard-link" type="button" onClick={openDashboard}>Open dashboard <span aria-hidden="true">→</span></button>
       <form className="application-form" onSubmit={handleSubmit}>
         <div className="form-heading"><div><p className="eyebrow">NEW ENTRY</p><h2>Track an application</h2></div><button className="refresh-button" type="button" onClick={() => void fillFromCurrentPage()} disabled={isExtracting}>{isExtracting ? 'Reading page...' : '↻ Fill from page'}</button></div>
         {message && <p className="success-message" role="status">{message}</p>}
