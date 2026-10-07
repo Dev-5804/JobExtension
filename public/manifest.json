@@ -5,5 +5,5 @@
   "description": "A privacy-first local job application tracker.",
   "action": { "default_title": "Track job application", "default_popup": "index.html" },
   "background": { "service_worker": "background.js" },
-  "permissions": ["storage"]
+  "permissions": ["storage", "activeTab", "scripting"]
 }

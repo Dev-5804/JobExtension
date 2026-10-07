@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import './App.css'
-import type { ApplicationStatus, JobApplication } from './types/application'
+import type { ApplicationDraft, ApplicationStatus, JobApplication } from './types/application'
 import { applicationRepository } from './storage/repository'
+import { extractFromActiveTab } from './extraction/activeTab'
 
 const statuses: ApplicationStatus[] = ['saved', 'applied', 'screening', 'interview', 'offer', 'rejected', 'withdrawn']
 const emptyForm = { company: '', jobTitle: '', url: '', location: '', platform: '', status: 'applied' as ApplicationStatus }
@@ -15,14 +16,42 @@ function App() {
   const [form, setForm] = useState(emptyForm)
   const [applications, setApplications] = useState<JobApplication[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isExtracting, setIsExtracting] = useState(false)
   const [message, setMessage] = useState('')
 
   useEffect(() => {
-    applicationRepository.getAll().then((storedApplications) => {
+    Promise.all([applicationRepository.getAll(), applicationRepository.getDraft()]).then(async ([storedApplications, draft]) => {
       setApplications(storedApplications)
+      if (draft) {
+        setForm(draft)
+      } else {
+        await fillFromCurrentPage(false)
+      }
       setIsLoading(false)
     })
   }, [])
+
+  async function fillFromCurrentPage(showMessage = true) {
+    setIsExtracting(true)
+    try {
+      const details = await extractFromActiveTab()
+      if (!details || Object.values(details).every((value) => !value)) {
+        if (showMessage) setMessage('No job details were detected on this page.')
+        return
+      }
+      updateForm({ ...emptyForm, ...details })
+      if (showMessage) setMessage('Job details detected from this page.')
+    } catch {
+      if (showMessage) setMessage('This page cannot be read. You can enter the details manually.')
+    } finally {
+      setIsExtracting(false)
+    }
+  }
+
+  function updateForm(nextForm: ApplicationDraft) {
+    setForm(nextForm)
+    void applicationRepository.saveDraft(nextForm)
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -35,6 +64,7 @@ function App() {
     })
     setApplications((current) => [application, ...current])
     setForm(emptyForm)
+    await applicationRepository.clearDraft()
     setMessage('Application saved locally.')
   }
 
@@ -48,14 +78,15 @@ function App() {
       </header>
       <section className="intro"><p>Keep your search in one calm, local place.</p><span>Nothing leaves this browser.</span></section>
       <form className="application-form" onSubmit={handleSubmit}>
-        <div className="form-heading"><div><p className="eyebrow">NEW ENTRY</p><h2>Track an application</h2></div>{message && <p className="success-message" role="status">{message}</p>}</div>
+        <div className="form-heading"><div><p className="eyebrow">NEW ENTRY</p><h2>Track an application</h2></div><button className="refresh-button" type="button" onClick={() => void fillFromCurrentPage()} disabled={isExtracting}>{isExtracting ? 'Reading page...' : '↻ Fill from page'}</button></div>
+        {message && <p className="success-message" role="status">{message}</p>}
         <div className="field-grid">
-          <label>Company<input required value={form.company} onChange={(event) => setForm({ ...form, company: event.target.value })} placeholder="e.g. Razorpay" /></label>
-          <label>Job title<input required value={form.jobTitle} onChange={(event) => setForm({ ...form, jobTitle: event.target.value })} placeholder="e.g. Frontend Developer" /></label>
-          <label className="wide-field">Job URL<input required type="url" value={form.url} onChange={(event) => setForm({ ...form, url: event.target.value })} placeholder="https://..." /></label>
-          <label>Location<input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="Remote or city" /></label>
-          <label>Platform<input value={form.platform} onChange={(event) => setForm({ ...form, platform: event.target.value })} placeholder="LinkedIn, company site..." /></label>
-          <label>Status<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as ApplicationStatus })}>{statuses.map((status) => <option key={status} value={status}>{formatStatus(status)}</option>)}</select></label>
+          <label>Company<input required value={form.company} onChange={(event) => updateForm({ ...form, company: event.target.value })} placeholder="e.g. Razorpay" /></label>
+          <label>Job title<input required value={form.jobTitle} onChange={(event) => updateForm({ ...form, jobTitle: event.target.value })} placeholder="e.g. Frontend Developer" /></label>
+          <label className="wide-field">Job URL<input required type="url" value={form.url} onChange={(event) => updateForm({ ...form, url: event.target.value })} placeholder="https://..." /></label>
+          <label>Location<input value={form.location} onChange={(event) => updateForm({ ...form, location: event.target.value })} placeholder="Remote or city" /></label>
+          <label>Platform<input value={form.platform} onChange={(event) => updateForm({ ...form, platform: event.target.value })} placeholder="LinkedIn, company site..." /></label>
+          <label>Status<select value={form.status} onChange={(event) => updateForm({ ...form, status: event.target.value as ApplicationStatus })}>{statuses.map((status) => <option key={status} value={status}>{formatStatus(status)}</option>)}</select></label>
         </div>
         <button className="primary-button" type="submit">Save application <span aria-hidden="true">↗</span></button>
       </form>
